@@ -1,34 +1,18 @@
-FROM node:14-bullseye AS development
+FROM node:14-bullseye
 
-WORKDIR /usr/src/app
-
-COPY package*.json ./
+WORKDIR /app
 
 RUN apt update
 RUN apt install -y make python build-essential
 
-RUN npm install --only=development
+COPY package.json /app/
 
-COPY . .
+RUN npm install
+
+COPY . /app
 
 RUN npm run build
 
-FROM node:14-bullseye AS production
+EXPOSE 3000
 
-ARG NODE_ENV=production
-ENV NODE_ENV=${NODE_ENV}
-
-WORKDIR /usr/src/app
-
-COPY package*.json ./
-
-RUN apt update
-RUN apt install -y make python build-essential
-
-RUN npm install --only=production
-
-COPY . .
-
-COPY --from=development /usr/src/app/dist ./dist
-
-CMD ["node", "dist/main"]
+CMD ["npm", "run", "start:prod"]
