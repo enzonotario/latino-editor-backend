@@ -1,9 +1,14 @@
-FROM node:14-bullseye
+FROM node:14.19.1-bullseye as base
 
 WORKDIR /app
 
 RUN apt update
 RUN apt install -y make python build-essential
+
+COPY assets/latino.deb latino.deb
+RUN dpkg -i latino.deb
+
+FROM base as prod
 
 COPY package.json /app/
 

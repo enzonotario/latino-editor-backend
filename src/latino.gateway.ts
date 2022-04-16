@@ -1,6 +1,6 @@
 import { SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 
-const pty = require('node-pty')
+const pty = require('node-pty-prebuilt-multiarch')
 
 @WebSocketGateway({
   cors: true,
@@ -8,12 +8,12 @@ const pty = require('node-pty')
 export class LatinoGateway {
   @SubscribeMessage('execute')
   executeLatino(client: any, payload: any): any {
-    let ptyProcess = pty.spawn(__dirname + '/assets/latino', ['-e', payload], {
+    let ptyProcess = pty.spawn('latino', ['-e', payload], {
       name: 'xterm-color',
       cols: 80,
       rows: 24,
       cwd: process.env.HOME,
-      env: process.env
+      env: process.env,
     })
 
     ptyProcess.on('data', (data) => {
@@ -21,7 +21,6 @@ export class LatinoGateway {
     });
 
     client.on('input', (data) => {
-      console.log(['client input', data]);
       ptyProcess.write(data);
     });
   }
