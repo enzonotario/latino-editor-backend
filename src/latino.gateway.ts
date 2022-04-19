@@ -44,7 +44,11 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.killClientPtyProcess(clientInstance);
     }
 
-    this.logger.log(['executeLatino', clientInstance]);
+    this.logger.log([
+      'executeLatino',
+      clientInstance.id,
+      clientInstance.ptyPid,
+    ]);
 
     const filename = `${uuidv4()}.lat`;
 
@@ -73,10 +77,10 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     });
 
-    ptyProcess.on('exit', (code) => {
-      this.logger.log(['pty exit', code]);
+    ptyProcess.on('exit', async (code) => {
+      this.logger.log(['pty exit code', code]);
 
-      this.queueProcessExit(ptyProcess, clientInstance);
+      await this.killPtyProcess(ptyProcess, clientInstance);
     });
 
     client.on('input', (data) => {
@@ -88,19 +92,21 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.clientsService.update(clientInstance);
   }
 
-  queueProcessExit(ptyProcess: any, clientInstance: ClientEntity) {
+  async killPtyProcess(ptyProcess: any, clientInstance: ClientEntity) {
     if (!ptyProcess || !ptyProcess.pid) {
       this.logger.error('trying to exit from non existent process');
       return;
     }
-    this.logger.log(['queueProcessExit', ptyProcess.pid]);
-    setTimeout(async () => {
-      ptyProcess.kill();
-      this.logger.log(['queueProcessExit', ptyProcess.pid, 'killed']);
 
-      clientInstance.ptyPid = null;
-      await this.clientsService.update(clientInstance);
-    }, 250);
+    try {
+      ptyProcess.kill();
+      this.logger.log(['killPtyProcess', ptyProcess.pid, 'killed']);
+    } catch (error) {
+      this.logger.error(error);
+    }
+
+    clientInstance.ptyPid = null;
+    await this.clientsService.update(clientInstance);
   }
 
   killClientPtyProcess(clientInstance: ClientEntity) {
