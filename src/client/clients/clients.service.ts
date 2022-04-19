@@ -20,12 +20,12 @@ export class ClientsService {
     });
   }
 
-  async create(contact: ClientEntity): Promise<ClientEntity> {
-    return await this.clientRepository.save(contact);
+  async create(client: ClientEntity): Promise<ClientEntity> {
+    return await this.clientRepository.save(client);
   }
 
-  async update(contact: ClientEntity): Promise<UpdateResult> {
-    return await this.clientRepository.update(contact.id, contact);
+  async update(client: ClientEntity): Promise<UpdateResult> {
+    return await this.clientRepository.update(client.id, client);
   }
 
   async delete(id): Promise<DeleteResult> {

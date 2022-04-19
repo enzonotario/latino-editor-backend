@@ -11,8 +11,10 @@ import {
 } from './helpers/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger } from '@nestjs/common';
-import { ClientsService } from './client/clients/clients.service';
-import { ClientEntity } from './client/models/client.entity';
+import { ProcessesService } from './client/clients/processes.service';
+import { ProcessEntity, ProcessStatus } from './client/models/process.entity';
+import { isRunning } from './helpers/utils';
+import { exec } from 'child_process';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pty = require('node-pty-prebuilt-multiarch');
@@ -23,32 +25,18 @@ const pty = require('node-pty-prebuilt-multiarch');
 export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private logger: Logger;
 
-  private clientsService: ClientsService;
+  private processesService: ProcessesService;
 
-  constructor(clientsService: ClientsService) {
+  constructor(processesService: ProcessesService) {
     this.logger = new Logger('LatinoGateway');
-    this.clientsService = clientsService;
+    this.processesService = processesService;
   }
 
   @SubscribeMessage('execute')
   async executeLatino(client: any, payload: any) {
-    const clientInstance: ClientEntity = await this.clientsService.findByWsId(
-      client.id,
-    );
+    this.logger.log(['executeLatino', client.id]);
 
-    if (!clientInstance) {
-      throw new Error('No client found');
-    }
-
-    if (clientInstance && clientInstance.ptyPid) {
-      this.killClientPtyProcess(clientInstance);
-    }
-
-    this.logger.log([
-      'executeLatino',
-      clientInstance.id,
-      clientInstance.ptyPid,
-    ]);
+    await this.killClientRunningProcesses(client.id);
 
     const filename = `${uuidv4()}.lat`;
 
@@ -80,19 +68,74 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     ptyProcess.on('exit', async (code) => {
       this.logger.log(['pty exit code', code]);
 
-      await this.killPtyProcess(ptyProcess, clientInstance);
+      await this.killPtyProcess(ptyProcess);
+
+      await this.deleteProcessEntity(ptyProcess.pid);
     });
 
     client.on('input', (data) => {
       ptyProcess.write(data);
     });
 
-    clientInstance.filename = filename;
-    clientInstance.ptyPid = ptyProcess.pid;
-    await this.clientsService.update(clientInstance);
+    setTimeout(async () => {
+      await this.persistProcessIfStillRunning(client.id, ptyProcess.pid);
+    }, 500);
   }
 
-  async killPtyProcess(ptyProcess: any, clientInstance: ClientEntity) {
+  async persistProcessIfStillRunning(wsId: string, pid: number) {
+    if (!isRunning(pid)) {
+      return;
+    }
+
+    console.log(['----will persist ----']);
+
+    await this.processesService.create(<ProcessEntity>{
+      wsId,
+      pid,
+      status: ProcessStatus.running,
+    });
+  }
+
+  async deleteProcessEntity(pid: number) {
+    const processEntity: ProcessEntity = await this.processesService.findByPid(
+      pid,
+    );
+
+    if (!processEntity) {
+      this.logger.log('No ProcessEntity found for PID: ' + pid);
+      return;
+    }
+
+    this.logger.log('ProcessEntity found for PID: ' + pid);
+
+    await this.processesService.delete(processEntity.id);
+  }
+
+  async killClientRunningProcesses(wsId: string) {
+    const processes = await this.processesService.findAllByWsId(wsId);
+
+    this.logger.log('Killing running proccesses for ', wsId, processes.length);
+
+    processes.forEach((processInstance: ProcessEntity) => {
+      if (this.tryToKillProcessByPid(processInstance.pid)) {
+        this.processesService.delete(processInstance.id);
+      }
+    });
+  }
+
+  tryToKillProcessByPid(pid: number): boolean {
+    this.logger.log('Trying to kill process by PID: ' + pid);
+    try {
+      exec('kill -9 ' + pid);
+      this.logger.log('Process PID: ' + pid + ' killed');
+      return true;
+    } catch (error) {
+      this.logger.error('Cant kill process PID: ' + pid);
+      return false;
+    }
+  }
+
+  async killPtyProcess(ptyProcess: any) {
     if (!ptyProcess || !ptyProcess.pid) {
       this.logger.error('trying to exit from non existent process');
       return;
@@ -104,41 +147,15 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(error);
     }
-
-    clientInstance.ptyPid = null;
-    await this.clientsService.update(clientInstance);
-  }
-
-  killClientPtyProcess(clientInstance: ClientEntity) {
-    this.logger.log([
-      'killing client ptyProcess',
-      clientInstance.id,
-      clientInstance.ptyPid,
-    ]);
-    try {
-      process.kill(clientInstance.ptyPid);
-    } catch (error) {
-      this.logger.error(error);
-    }
   }
 
   async handleConnection(client: any) {
-    const clientInstance = await this.clientsService.create(<ClientEntity>{
-      wsId: client.id,
-    });
-
-    this.logger.log(['on connect', clientInstance.id, clientInstance.wsId]);
+    this.logger.log(['on connect', client.id]);
   }
 
   async handleDisconnect(client: any) {
-    const clientInstance: ClientEntity = await this.clientsService.findByWsId(
-      client.id,
-    );
+    this.logger.log(['on disconnect', client.id]);
 
-    this.logger.log(['on disconnect', clientInstance.id, clientInstance.wsId]);
-
-    if (clientInstance && clientInstance.ptyPid) {
-      this.killClientPtyProcess(clientInstance);
-    }
+    await this.killClientRunningProcesses(client.id);
   }
 }

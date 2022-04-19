@@ -6,6 +6,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientModule } from './client/client.module';
 import { ClientEntity } from './client/models/client.entity';
 import { ClientsService } from './client/clients/clients.service';
+import { ProcessEntity } from './client/models/process.entity';
+import { ProcessesService } from './client/clients/processes.service';
 
 @Module({
   imports: [
@@ -16,11 +18,11 @@ import { ClientsService } from './client/clients/clients.service';
       synchronize: true,
     }),
 
-    TypeOrmModule.forFeature([ClientEntity]),
+    TypeOrmModule.forFeature([ClientEntity, ProcessEntity]),
 
     ClientModule,
   ],
   controllers: [AppController],
-  providers: [AppService, LatinoGateway, ClientsService],
+  providers: [AppService, LatinoGateway, ClientsService, ProcessesService],
 })
 export class AppModule {}
