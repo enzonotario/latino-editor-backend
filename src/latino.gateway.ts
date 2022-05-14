@@ -11,8 +11,8 @@ import {
 } from './helpers/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger } from '@nestjs/common';
-import { ProcessesService } from './client/clients/processes.service';
-import { ProcessEntity, ProcessStatus } from './client/models/process.entity';
+import { ProcessesService } from './process/services/processes.service';
+import { ProcessEntity, ProcessStatus } from './process/models/process.entity';
 import { isRunning } from './helpers/utils';
 import { exec } from 'child_process';
 import { IPty, spawn } from 'node-pty-prebuilt-multiarch';

@@ -3,11 +3,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LatinoGateway } from './latino.gateway';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ClientModule } from './client/client.module';
-import { ClientEntity } from './client/models/client.entity';
-import { ClientsService } from './client/clients/clients.service';
-import { ProcessEntity } from './client/models/process.entity';
-import { ProcessesService } from './client/clients/processes.service';
+import { ProcessEntity } from './process/models/process.entity';
+import { ProcessesService } from './process/services/processes.service';
+import { ProcessModule } from './process/process.module';
 
 @Module({
   imports: [
@@ -18,11 +16,11 @@ import { ProcessesService } from './client/clients/processes.service';
       synchronize: true,
     }),
 
-    TypeOrmModule.forFeature([ClientEntity, ProcessEntity]),
+    TypeOrmModule.forFeature([ProcessEntity]),
 
-    ClientModule,
+    ProcessModule,
   ],
   controllers: [AppController],
-  providers: [AppService, LatinoGateway, ClientsService, ProcessesService],
+  providers: [AppService, LatinoGateway, ProcessesService],
 })
 export class AppModule {}
