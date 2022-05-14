@@ -15,9 +15,7 @@ import { ProcessesService } from './client/clients/processes.service';
 import { ProcessEntity, ProcessStatus } from './client/models/process.entity';
 import { isRunning } from './helpers/utils';
 import { exec } from 'child_process';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const pty = require('node-pty-prebuilt-multiarch');
+import { IPty, spawn } from 'node-pty-prebuilt-multiarch';
 
 @WebSocketGateway({
   cors: true,
@@ -38,6 +36,18 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await this.killClientRunningProcesses(client.id);
 
+    const filepath = this.writeFile(payload);
+
+    const ptyProcess = this.runPtyProcess(filepath);
+
+    this.setupListeners(client, ptyProcess, filepath);
+
+    setTimeout(async () => {
+      await this.persistProcessIfStillRunning(client.id, ptyProcess.pid);
+    }, 500);
+  }
+
+  private writeFile(payload: string): string {
     const filename = `${uuidv4()}.lat`;
 
     const filepath = __dirname + '/' + filename;
@@ -46,7 +56,11 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.logger.log(['created file', filepath]);
 
-    const ptyProcess = pty.spawn('latino', [filepath], {
+    return filepath;
+  }
+
+  private runPtyProcess(filepath: string): IPty {
+    const ptyProcess = spawn('latino', [filepath], {
       name: 'xterm-color',
       cols: 80,
       rows: 24,
@@ -56,7 +70,11 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.logger.log(['pty process', ptyProcess.pid]);
 
-    ptyProcess.on('data', (data) => {
+    return ptyProcess;
+  }
+
+  private setupListeners(client, ptyProcess, filepath) {
+    ptyProcess.onData((data) => {
       client.emit('output', data);
 
       if (checkIfFileOrDirectoryExists(filepath)) {
@@ -65,7 +83,7 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     });
 
-    ptyProcess.on('exit', async (code) => {
+    ptyProcess.onExit(async (code) => {
       this.logger.log(['pty exit code', code]);
 
       await this.killPtyProcess(ptyProcess);
@@ -76,18 +94,14 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.on('input', (data) => {
       ptyProcess.write(data);
     });
-
-    setTimeout(async () => {
-      await this.persistProcessIfStillRunning(client.id, ptyProcess.pid);
-    }, 500);
   }
 
-  async persistProcessIfStillRunning(wsId: string, pid: number) {
+  private async persistProcessIfStillRunning(wsId: string, pid: number) {
     if (!isRunning(pid)) {
       return;
     }
 
-    console.log(['----will persist ----']);
+    this.logger.log(['persisting pid', pid]);
 
     await this.processesService.create(<ProcessEntity>{
       wsId,
@@ -96,7 +110,7 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
-  async deleteProcessEntity(pid: number) {
+  private async deleteProcessEntity(pid: number) {
     const processEntity: ProcessEntity = await this.processesService.findByPid(
       pid,
     );
@@ -111,7 +125,7 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.processesService.delete(processEntity.id);
   }
 
-  async killClientRunningProcesses(wsId: string) {
+  private async killClientRunningProcesses(wsId: string) {
     const processes = await this.processesService.findAllByWsId(wsId);
 
     this.logger.log('Killing running proccesses for ', wsId, processes.length);
@@ -123,7 +137,7 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
-  tryToKillProcessByPid(pid: number): boolean {
+  private tryToKillProcessByPid(pid: number): boolean {
     this.logger.log('Trying to kill process by PID: ' + pid);
     try {
       exec('kill -9 ' + pid);
@@ -135,7 +149,7 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  async killPtyProcess(ptyProcess: any) {
+  private async killPtyProcess(ptyProcess: any) {
     if (!ptyProcess || !ptyProcess.pid) {
       this.logger.error('trying to exit from non existent process');
       return;
