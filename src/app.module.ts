@@ -11,7 +11,7 @@ import { ProcessModule } from './process/process.module';
   imports: [
     TypeOrmModule.forRoot({
       type: 'sqlite',
-      database: './data/db',
+      database: './data/latino-editor.db',
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       synchronize: true,
     }),

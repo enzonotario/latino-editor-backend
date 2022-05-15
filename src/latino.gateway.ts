@@ -38,30 +38,30 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const filepath = this.writeFile(payload);
 
-    const ptyProcess = this.runPtyProcess(filepath);
+    const ptyProcess = await this.runPtyProcess(client, filepath);
 
     this.setupListeners(client, ptyProcess, filepath);
 
-    setTimeout(async () => {
-      await this.persistProcessIfStillRunning(client.id, ptyProcess.pid);
-    }, 500);
+    await this.persistProcess(client.id, ptyProcess.pid, filepath);
   }
 
   private writeFile(payload: string): string {
     const filename = `${uuidv4()}.lat`;
 
-    const filepath = __dirname + '/' + filename;
+    const directory = __dirname + '/code/';
 
-    createFile(__dirname, filename, payload);
+    const filepath = directory + filename;
+
+    createFile(directory, filename, payload);
 
     this.logger.log(['created file', filepath]);
 
     return filepath;
   }
 
-  private runPtyProcess(filepath: string): IPty {
+  private async runPtyProcess(client, filepath: string): Promise<IPty> {
     const ptyProcess = spawn('latino', [filepath], {
-      name: 'xterm-color',
+      name: 'xterm-256color',
       cols: 80,
       rows: 24,
       cwd: process.env.HOME,
@@ -69,26 +69,28 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     this.logger.log(['pty process', ptyProcess.pid]);
+    client.emit('running', ptyProcess.pid);
 
     return ptyProcess;
   }
 
   private setupListeners(client, ptyProcess, filepath) {
-    ptyProcess.onData((data) => {
+    this.logger.log(['setup listeners for pid', ptyProcess.pid]);
+
+    ptyProcess.onData(async (data) => {
       client.emit('output', data);
 
-      if (checkIfFileOrDirectoryExists(filepath)) {
-        deleteFile(filepath);
-        this.logger.log(['file deleted', filepath]);
-      }
+      this.deleteFileIfExists(filepath);
     });
 
     ptyProcess.onExit(async (code) => {
-      this.logger.log(['pty exit code', code]);
+      this.logger.log(['pty exit code', code.exitCode, ptyProcess.pid]);
+
+      client.emit('finished', ptyProcess.pid);
 
       await this.killPtyProcess(ptyProcess);
 
-      await this.deleteProcessEntity(ptyProcess.pid);
+      await this.markProcessAsFinished(ptyProcess.pid);
     });
 
     client.on('input', (data) => {
@@ -96,17 +98,18 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
-  private async persistProcessIfStillRunning(wsId: string, pid: number) {
+  private async persistProcess(wsId: string, pid: number, filepath: string) {
     if (!isRunning(pid)) {
       return;
     }
 
     this.logger.log(['persisting pid', pid]);
 
-    await this.processesService.create(<ProcessEntity>{
+    return await this.processesService.create(<ProcessEntity>{
       wsId,
       pid,
       status: ProcessStatus.running,
+      filepath,
     });
   }
 
@@ -125,16 +128,39 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.processesService.delete(processEntity.id);
   }
 
+  private async markProcessAsFinished(pid: number) {
+    this.logger.log(['markProcessAsFinished', pid]);
+
+    const processEntity: ProcessEntity = await this.processesService.findByPid(
+      pid,
+    );
+
+    if (!processEntity) {
+      this.logger.log('No ProcessEntity found for PID: ' + pid);
+      return;
+    }
+
+    processEntity.status = ProcessStatus.finished;
+
+    await this.processesService.update(processEntity);
+  }
+
   private async killClientRunningProcesses(wsId: string) {
     const processes = await this.processesService.findAllByWsId(wsId);
 
-    this.logger.log('Killing running proccesses for ', wsId, processes.length);
+    this.logger.log([
+      'Killing running proccesses for ',
+      wsId,
+      processes.length,
+    ]);
 
-    processes.forEach((processInstance: ProcessEntity) => {
-      if (this.tryToKillProcessByPid(processInstance.pid)) {
-        this.processesService.delete(processInstance.id);
-      }
-    });
+    await Promise.all(
+      processes.map((processInstance: ProcessEntity) => {
+        if (this.tryToKillProcessByPid(processInstance.pid)) {
+          return this.processesService.delete(processInstance.id);
+        }
+      }),
+    );
   }
 
   private tryToKillProcessByPid(pid: number): boolean {
@@ -161,6 +187,15 @@ export class LatinoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(error);
     }
+  }
+
+  private deleteFileIfExists(filepath: string) {
+    this.logger.log(['check if file exists for delete', filepath]);
+    if (!checkIfFileOrDirectoryExists(filepath)) {
+      return;
+    }
+    this.logger.log(['deleted file', filepath]);
+    deleteFile(filepath);
   }
 
   async handleConnection(client: any) {

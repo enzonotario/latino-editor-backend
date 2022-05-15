@@ -17,5 +17,13 @@ services:
       - .:/app
     restart: unless-stopped
 
+  sqliteweb:
+    image: tomdesinto/sqliteweb
+    ports:
+      - 8080:8080
+    volumes:
+      - ./data/latino-editor.db:/db/latino-editor.db
+    command: latino-editor.db
+
 networks:
   latino-editor-api:

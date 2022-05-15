@@ -24,8 +24,13 @@ export class ProcessEntity {
   })
   pid: number;
 
-  @Column({ enum: ProcessStatus })
+  @Column({
+    enum: ProcessStatus,
+  })
   status: ProcessStatus;
+
+  @Column()
+  filepath: string;
 
   @CreateDateColumn()
   public createdAt: Date;
